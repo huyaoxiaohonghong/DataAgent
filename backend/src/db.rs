@@ -200,3 +200,42 @@ pub async fn batch_delete_proxy_nodes(db: &D1Database, ids: &[i64]) -> Result<us
     stmt.run().await?;
     Ok(ids.len())
 }
+
+// ============= 订阅信息操作 =============
+
+pub async fn upsert_subscription_info(
+    db: &D1Database,
+    group_name: &str,
+    subscription_url: Option<&str>,
+    upload_bytes: i64,
+    download_bytes: i64,
+    total_bytes: i64,
+    expire_timestamp: Option<i64>,
+) -> Result<()> {
+    let expire_str = expire_timestamp.map(|t| t.to_string()).unwrap_or_else(|| "NULL".to_string());
+    let url_value = subscription_url.unwrap_or("");
+    
+    // 使用 INSERT OR REPLACE 实现 upsert
+    let query = format!(
+        "INSERT OR REPLACE INTO subscription_info (group_name, subscription_url, upload_bytes, download_bytes, total_bytes, expire_timestamp, last_update_at, created_at) VALUES (?, ?, {}, {}, {}, {}, datetime('now'), COALESCE((SELECT created_at FROM subscription_info WHERE group_name = ?), datetime('now')))",
+        upload_bytes, download_bytes, total_bytes, expire_str
+    );
+    let stmt = db.prepare(&query);
+    stmt.bind(&[group_name.into(), url_value.into(), group_name.into()])?
+        .run()
+        .await?;
+    Ok(())
+}
+
+pub async fn get_subscription_info(db: &D1Database, group_name: &str) -> Result<Option<crate::models::SubscriptionInfo>> {
+    let stmt = db.prepare("SELECT id, group_name, subscription_url, upload_bytes, download_bytes, total_bytes, expire_timestamp, last_update_at, created_at FROM subscription_info WHERE group_name = ?");
+    let result = stmt.bind(&[group_name.into()])?.first::<crate::models::SubscriptionInfo>(None).await?;
+    Ok(result)
+}
+
+pub async fn list_subscription_info(db: &D1Database) -> Result<Vec<crate::models::SubscriptionInfo>> {
+    let stmt = db.prepare("SELECT id, group_name, subscription_url, upload_bytes, download_bytes, total_bytes, expire_timestamp, last_update_at, created_at FROM subscription_info ORDER BY group_name");
+    let result = stmt.all().await?;
+    let infos: Vec<crate::models::SubscriptionInfo> = result.results()?;
+    Ok(infos)
+}

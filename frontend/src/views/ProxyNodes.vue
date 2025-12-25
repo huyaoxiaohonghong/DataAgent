@@ -7,20 +7,24 @@
       </div>
       <a-space>
         <a-popconfirm
-          v-if="selectedRowKeys.length > 0"
-          :title="`确定要删除选中的 ${selectedRowKeys.length} 个节点吗？`"
+          v-if="selectedNodeCount > 0"
+          :title="`确定要删除选中的 ${selectedNodeCount} 个节点吗？`"
           @confirm="handleBatchDelete"
           ok-text="确定"
           cancel-text="取消"
         >
           <a-button danger :loading="batchDeleting">
             <template #icon><DeleteOutlined /></template>
-            批量删除 ({{ selectedRowKeys.length }})
+            批量删除 ({{ selectedNodeCount }})
           </a-button>
         </a-popconfirm>
-        <a-button @click="handleCheckAll" :loading="checkingAll">
+        <a-button 
+          @click="handleCheckSelected" 
+          :loading="checkingAll"
+          :disabled="selectedNodeCount === 0"
+        >
           <template #icon><ThunderboltOutlined /></template>
-          全部测速
+          {{ selectedNodeCount > 0 ? `检测 (${selectedNodeCount})` : '选择节点检测' }}
         </a-button>
         <a-button @click="showImportModal = true">
           <template #icon><ImportOutlined /></template>
@@ -77,34 +81,76 @@
     <div class="glass-card table-card">
       <a-table
         :columns="columns"
-        :data-source="nodes"
+        :data-source="groupedNodes"
         :loading="loading"
-        :pagination="{ pageSize: 10 }"
-        row-key="id"
-        :row-selection="{ selectedRowKeys, onChange: onSelectChange }"
+        :pagination="false"
+        row-key="key"
+        :row-selection="{ selectedRowKeys, onChange: onSelectChange, checkStrictly: false }"
+        :default-expand-all-rows="true"
+        :indent-size="20"
       >
         <template #bodyCell="{ column, record }">
+          <!-- 名称列：分组行显示分组信息，节点行显示节点名称 -->
+          <template v-if="column.key === 'name'">
+            <template v-if="record.isGroup">
+              <div class="group-row">
+                <span class="group-name">
+                  <FolderOutlined style="margin-right: 8px; color: #1890ff;" />
+                  <strong>{{ record.name }}</strong>
+                  <a-tag style="margin-left: 8px;">{{ record.nodeCount }} 个节点</a-tag>
+                  <a-tag v-if="record.validCount > 0" color="success">{{ record.validCount }} 可用</a-tag>
+                </span>
+                <!-- 订阅信息显示 -->
+                <span v-if="getGroupSubscriptionInfo(record.name)" class="subscription-info">
+                  <a-tag color="blue">
+                    剩余: {{ formatTraffic(getGroupSubscriptionInfo(record.name)!.total_bytes - getGroupSubscriptionInfo(record.name)!.upload_bytes - getGroupSubscriptionInfo(record.name)!.download_bytes) }}
+                    / {{ formatTraffic(getGroupSubscriptionInfo(record.name)!.total_bytes) }}
+                  </a-tag>
+                  <a-tag :color="getGroupSubscriptionInfo(record.name)!.expire_timestamp && (getGroupSubscriptionInfo(record.name)!.expire_timestamp! * 1000 < Date.now()) ? 'red' : 'green'">
+                    {{ formatExpireTime(getGroupSubscriptionInfo(record.name)!.expire_timestamp) }}
+                  </a-tag>
+                </span>
+              </div>
+            </template>
+            <template v-else>
+              {{ record.name }}
+            </template>
+          </template>
+          
+          <!-- 其他列：分组行不显示，节点行正常显示 -->
+          <template v-if="column.key === 'protocol'">
+            <span v-if="!record.isGroup">{{ record.protocol }}</span>
+          </template>
           <template v-if="column.key === 'status'">
-            <a-tag :color="getStatusColor(record.status)">
+            <a-tag v-if="!record.isGroup" :color="getStatusColor(record.status)">
               {{ getStatusText(record.status) }}
             </a-tag>
           </template>
           <template v-if="column.key === 'latency'">
-            <span v-if="record.latency" :class="getLatencyClass(record.latency)">
-              {{ record.latency }}ms
-            </span>
-            <span v-else class="text-muted">-</span>
+            <template v-if="!record.isGroup">
+              <span v-if="record.latency" :class="getLatencyClass(record.latency)">
+                {{ record.latency }}ms
+              </span>
+              <span v-else class="text-muted">-</span>
+            </template>
           </template>
           <template v-if="column.key === 'address'">
-            <code class="address-code">{{ record.address }}:{{ record.port }}</code>
+            <code v-if="!record.isGroup" class="address-code">{{ record.address }}:{{ record.port }}</code>
           </template>
           <template v-if="column.key === 'last_check_at'">
-            <span v-if="record.last_check_at">{{ formatDate(record.last_check_at) }}</span>
-            <span v-else class="text-muted">从未检测</span>
+            <template v-if="!record.isGroup">
+              <span v-if="record.last_check_at">{{ formatDate(record.last_check_at) }}</span>
+              <span v-else class="text-muted">从未检测</span>
+            </template>
           </template>
           <template v-if="column.key === 'action'">
-            <a-space>
-              <a-tooltip title="测速">
+            <a-space v-if="!record.isGroup">
+              <a-tooltip title="查看链接">
+                <a-button type="text" size="small" @click="openLinkModal(record)">
+                  <LinkOutlined />
+                </a-button>
+              </a-tooltip>
+              <a-tooltip title="检测可用性">
                 <a-button 
                   type="text" 
                   size="small" 
@@ -132,6 +178,7 @@
         </template>
       </a-table>
     </div>
+
 
     <!-- 创建/编辑弹窗 -->
     <a-modal
@@ -249,14 +296,58 @@
         </a-tab-pane>
       </a-tabs>
     </a-modal>
+
+    <!-- 查看链接弹窗 -->
+    <a-modal
+      v-model:open="showLinkModal"
+      title="查看节点链接"
+      :footer="null"
+      width="520px"
+    >
+      <div v-if="currentViewNode" class="link-modal-content">
+        <div class="link-info">
+          <div class="link-label">节点名称</div>
+          <div class="link-value">{{ currentViewNode.name }}</div>
+        </div>
+        
+        <div class="link-info">
+          <div class="link-label">协议类型</div>
+          <div class="link-value">{{ currentViewNode.protocol.toUpperCase() }}</div>
+        </div>
+
+        <div class="link-info">
+          <div class="link-label">订阅链接</div>
+          <div class="link-box">
+            <a-textarea
+              :value="getNodeLink(currentViewNode)"
+              :rows="3"
+              readonly
+              class="link-textarea"
+            />
+            <a-button type="primary" @click="copyNodeLink" style="margin-top: 8px;">
+              <template #icon><CopyOutlined /></template>
+              复制链接
+            </a-button>
+          </div>
+        </div>
+
+        <div class="link-info">
+          <div class="link-label">扫码导入</div>
+          <div class="qrcode-box">
+            <canvas ref="qrcodeCanvas" class="qrcode-canvas"></canvas>
+          </div>
+        </div>
+      </div>
+    </a-modal>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, nextTick } from 'vue'
 import { message } from 'ant-design-vue'
-import { proxyApi, type ProxyNode } from '@/api/proxy'
+import { proxyApi, type ProxyNode, type SubscriptionInfo } from '@/api/proxy'
 import dayjs from 'dayjs'
+import QRCode from 'qrcode'
 import {
   PlusOutlined,
   ThunderboltOutlined,
@@ -268,6 +359,8 @@ import {
   QuestionCircleOutlined,
   ImportOutlined,
   FolderOutlined,
+  LinkOutlined,
+  CopyOutlined,
 } from '@ant-design/icons-vue'
 
 const loading = ref(false)
@@ -283,8 +376,16 @@ const importContent = ref('')
 const importGroupName = ref('')
 const nodes = ref<ProxyNode[]>([])
 const editingNode = ref<ProxyNode | null>(null)
-const selectedRowKeys = ref<number[]>([])
+const selectedRowKeys = ref<(string | number)[]>([])
 const batchDeleting = ref(false)
+
+// 链接查看弹窗相关
+const showLinkModal = ref(false)
+const currentViewNode = ref<ProxyNode | null>(null)
+const qrcodeCanvas = ref<HTMLCanvasElement | null>(null)
+
+// 订阅信息，按分组名称索引
+const subscriptionInfoMap = ref<Map<string, SubscriptionInfo>>(new Map())
 
 const formState = reactive({
   name: '',
@@ -297,8 +398,7 @@ const formState = reactive({
 })
 
 const columns = [
-  { title: '名称', dataIndex: 'name', key: 'name', width: 150 },
-  { title: '分组', dataIndex: 'group_name', key: 'group_name', width: 120 },
+  { title: '名称', dataIndex: 'name', key: 'name', width: 200 },
   { title: '协议', dataIndex: 'protocol', key: 'protocol', width: 80 },
   { title: '地址', key: 'address', width: 180 },
   { title: '状态', key: 'status', width: 80 },
@@ -307,9 +407,56 @@ const columns = [
   { title: '操作', key: 'action', width: 120 },
 ]
 
+// 分组节点接口
+interface GroupNode {
+  key: string
+  name: string
+  isGroup: boolean
+  nodeCount: number
+  validCount: number
+  children: (ProxyNode & { key: number })[]
+}
+
+type TreeNode = GroupNode | (ProxyNode & { key: number })
+
+// 将节点按分组转换为树形结构
+const groupedNodes = computed<TreeNode[]>(() => {
+  const groups = new Map<string, GroupNode>()
+  
+  for (const node of nodes.value) {
+    const groupName = node.group_name || '未分组'
+    
+    if (!groups.has(groupName)) {
+      groups.set(groupName, {
+        key: `group-${groupName}`,
+        name: groupName,
+        isGroup: true,
+        nodeCount: 0,
+        validCount: 0,
+        children: [],
+      })
+    }
+    
+    const group = groups.get(groupName)!
+    group.nodeCount++
+    if (node.status === 'valid') {
+      group.validCount++
+    }
+    group.children.push({ ...node, key: node.id })
+  }
+  
+  // 转换为数组并排序，未分组放最后
+  return Array.from(groups.values()).sort((a, b) => {
+    if (a.name === '未分组') return 1
+    if (b.name === '未分组') return -1
+    return a.name.localeCompare(b.name)
+  })
+})
+
 const validCount = computed(() => nodes.value.filter(n => n.status === 'valid').length)
 const invalidCount = computed(() => nodes.value.filter(n => n.status === 'invalid').length)
 const unknownCount = computed(() => nodes.value.filter(n => n.status === 'unknown').length)
+const selectedNodeCount = computed(() => selectedRowKeys.value.filter(key => typeof key === 'number').length)
 
 function formatDate(date: string) {
   return dayjs(date).format('YYYY-MM-DD HH:mm')
@@ -335,6 +482,34 @@ function getLatencyClass(latency: number) {
   if (latency < 100) return 'latency-fast'
   if (latency < 300) return 'latency-medium'
   return 'latency-slow'
+}
+
+// 格式化流量显示
+function formatTraffic(bytes: number): string {
+  if (bytes <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  const exp = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1)
+  return `${(bytes / Math.pow(1024, exp)).toFixed(2)} ${units[exp]}`
+}
+
+// 格式化剩余时间
+function formatExpireTime(timestamp: number | undefined): string {
+  if (!timestamp) return '永久'
+  const now = Date.now() / 1000
+  const diff = timestamp - now
+  if (diff <= 0) return '已过期'
+  
+  const days = Math.floor(diff / 86400)
+  if (days > 30) {
+    const months = Math.floor(days / 30)
+    return `${months} 个月`
+  }
+  return `${days} 天`
+}
+
+// 获取分组的订阅信息
+function getGroupSubscriptionInfo(groupName: string): SubscriptionInfo | undefined {
+  return subscriptionInfoMap.value.get(groupName)
 }
 
 function openCreateModal() {
@@ -368,9 +543,22 @@ function openEditModal(node: ProxyNode) {
 async function loadNodes() {
   loading.value = true
   try {
-    const response = await proxyApi.listNodes()
-    if (response.success && response.data) {
-      nodes.value = response.data
+    const [nodesResponse, subInfoResponse] = await Promise.all([
+      proxyApi.listNodes(),
+      proxyApi.listSubscriptionInfo()
+    ])
+    
+    if (nodesResponse.success && nodesResponse.data) {
+      nodes.value = nodesResponse.data
+    }
+    
+    // 加载订阅信息并建立索引
+    if (subInfoResponse.success && subInfoResponse.data) {
+      const map = new Map<string, SubscriptionInfo>()
+      for (const info of subInfoResponse.data) {
+        map.set(info.group_name, info)
+      }
+      subscriptionInfoMap.value = map
     }
   } catch (error) {
     message.error('加载节点列表失败')
@@ -438,19 +626,25 @@ async function handleDelete(id: number) {
   }
 }
 
-function onSelectChange(keys: number[]) {
+function onSelectChange(keys: (string | number)[]) {
   selectedRowKeys.value = keys
 }
 
+// 获取实际选中的节点 ID（过滤掉分组 key）
+function getSelectedNodeIds(): number[] {
+  return selectedRowKeys.value.filter((key): key is number => typeof key === 'number')
+}
+
 async function handleBatchDelete() {
-  if (selectedRowKeys.value.length === 0) {
+  const nodeIds = getSelectedNodeIds()
+  if (nodeIds.length === 0) {
     message.warning('请先选择要删除的节点')
     return
   }
 
   batchDeleting.value = true
   try {
-    const response = await proxyApi.batchDeleteNodes(selectedRowKeys.value)
+    const response = await proxyApi.batchDeleteNodes(nodeIds)
     if (response.success && response.data) {
       message.success(`成功删除 ${response.data.deleted} 个节点`)
       selectedRowKeys.value = []
@@ -463,6 +657,81 @@ async function handleBatchDelete() {
   } finally {
     batchDeleting.value = false
   }
+}
+
+// 获取节点的原始链接
+function getNodeLink(node: ProxyNode): string {
+  // 优先使用 extra_config 中存储的原始链接
+  if (node.extra_config) {
+    // 如果 extra_config 是一个链接格式，直接返回
+    if (node.extra_config.startsWith('vmess://') || 
+        node.extra_config.startsWith('trojan://') || 
+        node.extra_config.startsWith('ss://') ||
+        node.extra_config.startsWith('http://') ||
+        node.extra_config.startsWith('https://') ||
+        node.extra_config.startsWith('socks')) {
+      return node.extra_config
+    }
+    // 如果是 VMess JSON，需要构建完整链接
+    if (node.protocol === 'vmess') {
+      try {
+        // extra_config 存储的是解码后的 JSON
+        const encoded = btoa(node.extra_config)
+        return `vmess://${encoded}`
+      } catch {
+        // 如果编码失败，返回原始配置
+      }
+    }
+  }
+  
+  // 如果没有原始链接，根据协议构建基本链接
+  if (node.protocol === 'http' || node.protocol === 'https') {
+    const auth = node.username ? `${node.username}:${node.password || ''}@` : ''
+    return `${node.protocol}://${auth}${node.address}:${node.port}`
+  }
+  if (node.protocol === 'socks5') {
+    const auth = node.username ? `${node.username}:${node.password || ''}@` : ''
+    return `socks5://${auth}${node.address}:${node.port}`
+  }
+  
+  return `${node.protocol}://${node.address}:${node.port}`
+}
+
+// 打开链接查看弹窗
+async function openLinkModal(node: ProxyNode) {
+  currentViewNode.value = node
+  showLinkModal.value = true
+  
+  // 等待 DOM 更新后生成二维码
+  await nextTick()
+  generateQRCode()
+}
+
+// 生成二维码
+function generateQRCode() {
+  if (!currentViewNode.value || !qrcodeCanvas.value) return
+  
+  const link = getNodeLink(currentViewNode.value)
+  QRCode.toCanvas(qrcodeCanvas.value, link, {
+    width: 200,
+    margin: 2,
+    color: {
+      dark: '#000000',
+      light: '#ffffff'
+    }
+  })
+}
+
+// 复制节点链接
+function copyNodeLink() {
+  if (!currentViewNode.value) return
+  
+  const link = getNodeLink(currentViewNode.value)
+  navigator.clipboard.writeText(link).then(() => {
+    message.success('链接已复制到剪贴板')
+  }).catch(() => {
+    message.error('复制失败，请手动复制')
+  })
 }
 
 async function handleCheck(id: number) {
@@ -483,18 +752,35 @@ async function handleCheck(id: number) {
   }
 }
 
-async function handleCheckAll() {
+async function handleCheckSelected() {
+  const nodeIds = getSelectedNodeIds()
+  if (nodeIds.length === 0) {
+    message.warning('请先选择要检测的节点')
+    return
+  }
+
   checkingAll.value = true
   try {
-    const response = await proxyApi.checkAllNodes()
-    if (response.success && response.data) {
-      const results = response.data
-      const validCount = results.filter(r => r.status === 'valid').length
-      message.success(`检测完成：${validCount}/${results.length} 个节点可用`)
-      await loadNodes()
-    } else {
-      message.error(response.message)
+    let successCount = 0
+    let validCount = 0
+    
+    // 逐个检测选中的节点
+    for (const id of nodeIds) {
+      try {
+        const response = await proxyApi.checkNode(id)
+        if (response.success && response.data) {
+          successCount++
+          if (response.data.status === 'valid') {
+            validCount++
+          }
+        }
+      } catch {
+        // 单个节点检测失败，继续检测其他节点
+      }
     }
+    
+    message.success(`检测完成：${validCount}/${successCount} 个节点可用`)
+    await loadNodes()
   } catch (error) {
     message.error('批量检测失败')
   } finally {
@@ -660,5 +946,71 @@ onMounted(() => {
   margin-top: 8px;
   font-size: 12px;
   color: rgba(255, 255, 255, 0.45);
+}
+
+.group-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.group-name {
+  display: inline-flex;
+  align-items: center;
+}
+
+.group-name strong {
+  font-size: 14px;
+  color: #fff;
+}
+
+.subscription-info {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 24px;
+}
+
+/* 链接查看弹窗样式 */
+.link-modal-content {
+  padding: 8px 0;
+}
+
+.link-info {
+  margin-bottom: 20px;
+}
+
+.link-label {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.45);
+  margin-bottom: 8px;
+}
+
+.link-value {
+  font-size: 14px;
+  color: #fff;
+}
+
+.link-box {
+  display: flex;
+  flex-direction: column;
+}
+
+.link-textarea {
+  font-family: monospace;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.qrcode-box {
+  display: flex;
+  justify-content: center;
+  padding: 16px;
+  background: #fff;
+  border-radius: 8px;
+}
+
+.qrcode-canvas {
+  display: block;
 }
 </style>

@@ -234,6 +234,23 @@ pub async fn check_all_nodes(req: Request, ctx: RouteContext<()>) -> Result<Resp
     }
 }
 
+// 获取所有订阅信息
+pub async fn list_subscription_info(req: Request, ctx: RouteContext<()>) -> Result<Response> {
+    let db = ctx.env.d1("DB")?;
+    
+    match jwt::extract_jwt_claims(&req) {
+        Some(_claims) => {
+            let infos = db::list_subscription_info(&db).await?;
+            let response = ApiResponse::success(infos);
+            Response::from_json(&response)
+        }
+        None => {
+            let response: ApiResponse<Vec<crate::models::SubscriptionInfo>> = ApiResponse::error("Unauthorized");
+            Response::from_json(&response).map(|r| r.with_status(401))
+        }
+    }
+}
+
 // 订阅链接导入请求
 #[derive(serde::Deserialize)]
 pub struct ImportSubscriptionRequest {
@@ -272,11 +289,26 @@ pub async fn import_subscription(mut req: Request, ctx: RouteContext<()>) -> Res
             let body: ImportSubscriptionRequest = req.json().await?;
             
             // 获取订阅内容
-            let content = if let Some(url) = body.url {
+            // 用于存储订阅信息
+            let mut subscription_url: Option<String> = None;
+            let mut upload_bytes: i64 = 0;
+            let mut download_bytes: i64 = 0;
+            let mut total_bytes: i64 = 0;
+            let mut expire_timestamp: Option<i64> = None;
+            
+            let content = if let Some(ref url) = body.url {
+                subscription_url = Some(url.clone());
+                
                 // 从 URL 获取订阅内容
-                let mut fetch_req = Request::new(&url, Method::Get)?;
-                // 添加 User-Agent 伪装成 Clash，解决部分订阅链接 403 问题
-                fetch_req.headers_mut()?.set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")?;
+                let mut fetch_req = Request::new(url, Method::Get)?;
+                // 添加完整的浏览器请求头，绕过 Cloudflare 等 WAF 检测
+                let headers = fetch_req.headers_mut()?;
+                headers.set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")?;
+                headers.set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8")?;
+                headers.set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")?;
+                headers.set("Accept-Encoding", "gzip, deflate, br")?;
+                headers.set("Cache-Control", "no-cache")?;
+                headers.set("Pragma", "no-cache")?;
                 
                 let mut resp = Fetch::Request(fetch_req).send().await?;
                 
@@ -286,6 +318,39 @@ pub async fn import_subscription(mut req: Request, ctx: RouteContext<()>) -> Res
                     let err_msg = format!("订阅链接访问失败: HTTP {} -Body: {}", status, &text.chars().take(100).collect::<String>());
                     let response: ApiResponse<ImportResult> = ApiResponse::error(&err_msg);
                     return Response::from_json(&response).map(|r| r.with_status(400));
+                }
+
+                // 解析 subscription-userinfo 响应头
+                // 支持多种前缀格式: subscription-userinfo, x-amz-meta-subscription-userinfo 等
+                // 格式: upload=xxx; download=xxx; total=xxx; expire=xxx
+                let headers = resp.headers();
+                let mut userinfo_found = false;
+                
+                // 尝试常见的 header 名称
+                let header_names = [
+                    "subscription-userinfo",
+                    "Subscription-Userinfo",
+                    "Subscription-UserInfo",
+                ];
+                
+                for header_name in &header_names {
+                    if let Ok(Some(userinfo)) = headers.get(header_name) {
+                        parse_subscription_userinfo(&userinfo, &mut upload_bytes, &mut download_bytes, &mut total_bytes, &mut expire_timestamp);
+                        userinfo_found = true;
+                        break;
+                    }
+                }
+                
+                // 如果标准名称没找到，尝试查找带前缀的版本
+                if !userinfo_found {
+                    // 遍历所有 header 查找以 subscription-userinfo 结尾的
+                    for (key, value) in headers.entries() {
+                        let key_lower = key.to_lowercase();
+                        if key_lower.ends_with("subscription-userinfo") {
+                            parse_subscription_userinfo(&value, &mut upload_bytes, &mut download_bytes, &mut total_bytes, &mut expire_timestamp);
+                            break;
+                        }
+                    }
                 }
 
                 resp.text().await?
@@ -323,6 +388,19 @@ pub async fn import_subscription(mut req: Request, ctx: RouteContext<()>) -> Res
                         failed_count += 1;
                     }
                 }
+            }
+            
+            // 保存订阅信息（如果有分组名称）
+            if let Some(ref group_name) = body.group_name {
+                let _ = db::upsert_subscription_info(
+                    &db,
+                    group_name,
+                    subscription_url.as_deref(),
+                    upload_bytes,
+                    download_bytes,
+                    total_bytes,
+                    expire_timestamp,
+                ).await;
             }
             
             let _ = db::add_log(&db, claims.sub, &format!("imported {} proxy nodes from subscription", success_count)).await;
@@ -368,6 +446,30 @@ pub async fn batch_delete_nodes(mut req: Request, ctx: RouteContext<()>) -> Resu
         None => {
             let response: ApiResponse<BatchDeleteResult> = ApiResponse::error("Unauthorized");
             Response::from_json(&response).map(|r| r.with_status(401))
+        }
+    }
+}
+
+// 解析 subscription-userinfo 头部内容
+fn parse_subscription_userinfo(
+    userinfo: &str,
+    upload: &mut i64,
+    download: &mut i64,
+    total: &mut i64,
+    expire: &mut Option<i64>,
+) {
+    for part in userinfo.split(';') {
+        let part = part.trim();
+        if let Some((key, value)) = part.split_once('=') {
+            let key = key.trim().to_lowercase();
+            let value = value.trim();
+            match key.as_str() {
+                "upload" => *upload = value.parse().unwrap_or(0),
+                "download" => *download = value.parse().unwrap_or(0),
+                "total" => *total = value.parse().unwrap_or(0),
+                "expire" => *expire = value.parse().ok(),
+                _ => {}
+            }
         }
     }
 }
@@ -654,26 +756,30 @@ fn parse_socks_link(link: &str) -> Option<ParsedNode> {
     })
 }
 
-// URL 解码
+// URL 解码 - 正确处理 UTF-8 多字节字符
 fn urlencoding_decode(input: &str) -> String {
-    let mut result = String::new();
+    let mut bytes: Vec<u8> = Vec::new();
     let mut chars = input.chars().peekable();
     
     while let Some(c) = chars.next() {
         if c == '%' {
             let hex: String = chars.by_ref().take(2).collect();
             if let Ok(byte) = u8::from_str_radix(&hex, 16) {
-                result.push(byte as char);
+                bytes.push(byte);
             } else {
-                result.push('%');
-                result.push_str(&hex);
+                bytes.push(b'%');
+                bytes.extend(hex.as_bytes());
             }
         } else if c == '+' {
-            result.push(' ');
+            bytes.push(b' ');
         } else {
-            result.push(c);
+            // 对于普通字符，将其 UTF-8 编码添加到字节数组
+            let mut buf = [0u8; 4];
+            let encoded = c.encode_utf8(&mut buf);
+            bytes.extend(encoded.as_bytes());
         }
     }
     
-    result
+    // 将字节数组转换为 UTF-8 字符串
+    String::from_utf8(bytes).unwrap_or_else(|_| input.to_string())
 }

@@ -47,6 +47,18 @@ export interface BatchDeleteResult {
     deleted: number
 }
 
+export interface SubscriptionInfo {
+    id: number
+    group_name: string
+    subscription_url?: string
+    upload_bytes: number
+    download_bytes: number
+    total_bytes: number
+    expire_timestamp?: number
+    last_update_at?: string
+    created_at: string
+}
+
 export const proxyApi = {
     async listNodes(): Promise<ApiResponse<ProxyNode[]>> {
         const response = await api.get<ApiResponse<ProxyNode[]>>('/proxy/nodes')
@@ -90,6 +102,11 @@ export const proxyApi = {
 
     async batchDeleteNodes(ids: number[]): Promise<ApiResponse<BatchDeleteResult>> {
         const response = await api.post<ApiResponse<BatchDeleteResult>>('/proxy/nodes/batch-delete', { ids })
+        return response.data
+    },
+
+    async listSubscriptionInfo(): Promise<ApiResponse<SubscriptionInfo[]>> {
+        const response = await api.get<ApiResponse<SubscriptionInfo[]>>('/proxy/subscriptions')
         return response.data
     },
 }

@@ -127,3 +127,17 @@ pub struct ProxyCheckResult {
     pub latency: Option<i64>,
     pub message: String,
 }
+
+// 订阅信息模型
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SubscriptionInfo {
+    pub id: i64,
+    pub group_name: String,
+    pub subscription_url: Option<String>,
+    pub upload_bytes: i64,
+    pub download_bytes: i64,
+    pub total_bytes: i64,
+    pub expire_timestamp: Option<i64>,
+    pub last_update_at: Option<String>,
+    pub created_at: String,
+}

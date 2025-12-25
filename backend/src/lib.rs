@@ -34,6 +34,7 @@ async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         .post_async("/api/proxy/nodes/check-all", handlers::proxy::check_all_nodes)
         .post_async("/api/proxy/import", handlers::proxy::import_subscription)
         .post_async("/api/proxy/nodes/batch-delete", handlers::proxy::batch_delete_nodes)
+        .get_async("/api/proxy/subscriptions", handlers::proxy::list_subscription_info)
         .options("/api/*path", |_, _| {
             Response::empty()
                 .map(|r| r.with_headers(utils::cors_headers()))
