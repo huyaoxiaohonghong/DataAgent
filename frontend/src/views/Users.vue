@@ -11,34 +11,36 @@
       </a-button>
     </div>
 
-    <div class="glass-card table-card">
-      <a-table
-        :columns="columns"
-        :data-source="users"
-        :loading="loading"
-        :pagination="{ pageSize: 10 }"
-        row-key="id"
-      >
-        <template #bodyCell="{ column, record }">
-          <template v-if="column.key === 'created_at'">
-            {{ formatDate(record.created_at) }}
+    <AnimatedList animationType="slideUp" :duration="0.6" :delay="100">
+      <div class="glass-card table-card">
+        <a-table
+          :columns="columns"
+          :data-source="users"
+          :loading="loading"
+          :pagination="{ pageSize: 10 }"
+          row-key="id"
+        >
+          <template #bodyCell="{ column, record }">
+            <template v-if="column.key === 'created_at'">
+              {{ formatDate(record.created_at) }}
+            </template>
+            <template v-if="column.key === 'action'">
+              <a-space>
+                <a-button type="link" size="small" @click="openEditModal(record)">编辑</a-button>
+                <a-popconfirm
+                  title="确定要删除这个用户吗？"
+                  @confirm="handleDeleteUser(record.id)"
+                  ok-text="确定"
+                  cancel-text="取消"
+                >
+                  <a-button type="link" size="small" danger :loading="deleteLoading === record.id">删除</a-button>
+                </a-popconfirm>
+              </a-space>
+            </template>
           </template>
-          <template v-if="column.key === 'action'">
-            <a-space>
-              <a-button type="link" size="small" @click="openEditModal(record)">编辑</a-button>
-              <a-popconfirm
-                title="确定要删除这个用户吗？"
-                @confirm="handleDeleteUser(record.id)"
-                ok-text="确定"
-                cancel-text="取消"
-              >
-                <a-button type="link" size="small" danger :loading="deleteLoading === record.id">删除</a-button>
-              </a-popconfirm>
-            </a-space>
-          </template>
-        </template>
-      </a-table>
-    </div>
+        </a-table>
+      </div>
+    </AnimatedList>
 
     <!-- 创建/编辑用户弹窗 -->
     <a-modal
@@ -65,6 +67,7 @@ import { message } from 'ant-design-vue'
 import { userApi } from '@/api/user'
 import type { User } from '@/types'
 import { PlusOutlined } from '@ant-design/icons-vue'
+import AnimatedList from '@/components/animations/AnimatedList.vue'
 import dayjs from 'dayjs'
 
 const loading = ref(false)

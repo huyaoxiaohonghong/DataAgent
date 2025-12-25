@@ -1,16 +1,22 @@
 <template>
   <div class="login-container">
-    <div class="login-background">
-      <div class="floating-shapes">
-        <div class="shape shape-1"></div>
-        <div class="shape shape-2"></div>
-        <div class="shape shape-3"></div>
-      </div>
-    </div>
+    <!-- 像素雪花背景 -->
+    <PixelSnow 
+      :snowflakeCount="180"
+      color="rgba(255, 255, 255, 0.9)"
+      :minSize="2"
+      :maxSize="6"
+      :speed="1.2"
+      :wind="0.3"
+      :pixelated="true"
+    />
+    
     <div class="login-card glass-card fade-in">
       <div class="login-header">
         <CloudOutlined class="login-logo" />
-        <h1 class="gradient-text">Edge Manager</h1>
+        <h1 class="gradient-text">
+          <SplitText text="Edge Manager" :delay="60" :duration="400" />
+        </h1>
         <p class="login-subtitle">{{ isAddAccountMode ? '添加新账号' : '全栈边缘管理系统' }}</p>
       </div>
       
@@ -105,6 +111,8 @@ import { message } from 'ant-design-vue'
 import { useAuthStore } from '@/stores/auth'
 import { UserOutlined, LockOutlined, CloudOutlined, RightOutlined } from '@ant-design/icons-vue'
 import SliderCaptcha from '@/components/SliderCaptcha.vue'
+import PixelSnow from '@/components/backgrounds/PixelSnow.vue'
+import SplitText from '@/components/animations/SplitText.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -161,60 +169,7 @@ async function handleCaptchaSuccess() {
   justify-content: center;
   position: relative;
   overflow: hidden;
-}
-
-.login-background {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-}
-
-.floating-shapes {
-  position: absolute;
-  inset: 0;
-}
-
-.shape {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(60px);
-  opacity: 0.5;
-  animation: float 6s ease-in-out infinite;
-}
-
-.shape-1 {
-  width: 400px;
-  height: 400px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  top: -100px;
-  left: -100px;
-}
-
-.shape-2 {
-  width: 300px;
-  height: 300px;
-  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-  bottom: -50px;
-  right: -50px;
-  animation-delay: -2s;
-}
-
-.shape-3 {
-  width: 200px;
-  height: 200px;
-  background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-  top: 50%;
-  left: 50%;
-  animation-delay: -4s;
-}
-
-@keyframes float {
-  0%, 100% {
-    transform: translate(0, 0) scale(1);
-  }
-  50% {
-    transform: translate(30px, -30px) scale(1.1);
-  }
+  background: #0b0b0b;
 }
 
 .login-card {

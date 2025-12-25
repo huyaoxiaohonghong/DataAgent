@@ -11,26 +11,28 @@
       </a-button>
     </div>
 
-    <div class="glass-card table-card">
-      <a-table
-        :columns="columns"
-        :data-source="logs"
-        :loading="loading"
-        :pagination="{ pageSize: 20 }"
-        row-key="id"
-      >
-        <template #bodyCell="{ column, record }">
-          <template v-if="column.key === 'timestamp'">
-            {{ formatDate(record.timestamp) }}
+    <AnimatedList animationType="slideUp" :duration="0.6" :delay="100">
+      <div class="glass-card table-card">
+        <a-table
+          :columns="columns"
+          :data-source="logs"
+          :loading="loading"
+          :pagination="{ pageSize: 20 }"
+          row-key="id"
+        >
+          <template #bodyCell="{ column, record }">
+            <template v-if="column.key === 'timestamp'">
+              {{ formatDate(record.timestamp) }}
+            </template>
+            <template v-if="column.key === 'action'">
+              <a-tag :color="getActionColor(record.action)">
+                {{ record.action }}
+              </a-tag>
+            </template>
           </template>
-          <template v-if="column.key === 'action'">
-            <a-tag :color="getActionColor(record.action)">
-              {{ record.action }}
-            </a-tag>
-          </template>
-        </template>
-      </a-table>
-    </div>
+        </a-table>
+      </div>
+    </AnimatedList>
   </div>
 </template>
 
@@ -40,6 +42,7 @@ import { message } from 'ant-design-vue'
 import { logsApi } from '@/api/logs'
 import type { LogEntry } from '@/types'
 import { ReloadOutlined } from '@ant-design/icons-vue'
+import AnimatedList from '@/components/animations/AnimatedList.vue'
 import dayjs from 'dayjs'
 
 const loading = ref(false)

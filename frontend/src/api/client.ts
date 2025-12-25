@@ -4,8 +4,11 @@ import type { StoredSession } from '@/types'
 const SESSIONS_KEY = 'edge_sessions'
 const CURRENT_USER_KEY = 'edge_current_user'
 
+// 生产环境使用实际的 Workers URL，开发环境使用代理
+const API_BASE_URL = import.meta.env.VITE_API_URL || '/api'
+
 const api = axios.create({
-    baseURL: '/api',
+    baseURL: API_BASE_URL,
     timeout: 10000,
     headers: {
         'Content-Type': 'application/json',

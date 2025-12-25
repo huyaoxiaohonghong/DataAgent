@@ -38,7 +38,8 @@
     </div>
 
     <!-- 统计卡片 -->
-    <a-row :gutter="16" class="stats-row">
+    <AnimatedList animationType="slideUp" :duration="0.5" :delay="0">
+      <a-row :gutter="16" class="stats-row">
       <a-col :span="6">
         <div class="stat-card glass-card">
           <div class="stat-icon total"><CloudServerOutlined /></div>
@@ -74,11 +75,13 @@
             <div class="stat-label">未检测</div>
           </div>
         </div>
-      </a-col>
-    </a-row>
+        </a-col>
+      </a-row>
+    </AnimatedList>
 
     <!-- 节点列表 -->
-    <div class="glass-card table-card">
+    <AnimatedList animationType="slideUp" :duration="0.6" :delay="150">
+      <div class="glass-card table-card">
       <a-table
         :columns="columns"
         :data-source="groupedNodes"
@@ -176,8 +179,9 @@
             </a-space>
           </template>
         </template>
-      </a-table>
-    </div>
+        </a-table>
+      </div>
+    </AnimatedList>
 
 
     <!-- 创建/编辑弹窗 -->
@@ -362,6 +366,7 @@ import {
   LinkOutlined,
   CopyOutlined,
 } from '@ant-design/icons-vue'
+import AnimatedList from '@/components/animations/AnimatedList.vue'
 
 const loading = ref(false)
 const submitLoading = ref(false)

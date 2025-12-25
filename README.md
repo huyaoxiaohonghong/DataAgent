@@ -97,16 +97,51 @@ npm run dev
 
 ```bash
 cd backend
-wrangler publish
+wrangler deploy
 ```
+
+部署后记录你的 Worker URL，格式为: `https://your-worker-name.your-subdomain.workers.dev`
 
 ### 部署前端 (Cloudflare Pages)
 
+#### 方法一：使用 Wrangler CLI
+
+1. 构建前端:
 ```bash
 cd frontend
 npm run build
-wrangler pages publish dist
 ```
+
+2. 创建 Pages 项目并部署 (首次部署):
+```bash
+wrangler pages project create dataagent-frontend
+wrangler pages deploy dist --project-name=dataagent-frontend
+```
+
+3. 配置环境变量:
+
+在 Cloudflare Dashboard → Pages → dataagent-frontend → Settings → Environment variables 中添加:
+- `VITE_API_URL`: 你的后端 Worker URL + `/api`，例如 `https://dataagent-backend.xxx.workers.dev/api`
+
+4. 后续更新:
+```bash
+npm run build
+wrangler pages deploy dist --project-name=dataagent-frontend
+```
+
+#### 方法二：连接 Git 仓库
+
+1. 登录 [Cloudflare Dashboard](https://dash.cloudflare.com/)
+2. 进入 **Pages** → **Create a project**
+3. 选择 **Connect to Git** 并授权访问你的仓库
+4. 配置构建设置:
+   - **Framework preset**: `Vite`
+   - **Build command**: `cd frontend && npm run build`
+   - **Build output directory**: `frontend/dist`
+   - **Root directory**: `/`
+5. 添加环境变量:
+   - `VITE_API_URL`: 你的后端 Worker URL + `/api`
+6. 点击 **Save and Deploy**
 
 ## API 端点
 

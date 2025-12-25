@@ -1,7 +1,7 @@
 <template>
   <div class="dashboard fade-in">
     <div class="page-header">
-      <h1>仪表盘</h1>
+      <h1><SplitText text="仪表盘" :delay="80" :duration="500" /></h1>
       <p class="page-subtitle">欢迎回来, {{ authStore.session?.username }}</p>
     </div>
 
@@ -12,7 +12,9 @@
             <TeamOutlined />
           </div>
           <div class="stat-content">
-            <div class="stat-value">{{ stats.totalUsers }}</div>
+            <div class="stat-value">
+              <CountUp :endValue="stats.totalUsers" :duration="1500" />
+            </div>
             <div class="stat-label">总用户数</div>
           </div>
         </div>
@@ -23,7 +25,9 @@
             <FileTextOutlined />
           </div>
           <div class="stat-content">
-            <div class="stat-value">{{ stats.totalLogs }}</div>
+            <div class="stat-value">
+              <CountUp :endValue="stats.totalLogs" :duration="1500" />
+            </div>
             <div class="stat-label">操作日志</div>
           </div>
         </div>
@@ -54,28 +58,32 @@
 
     <a-row :gutter="[24, 24]">
       <a-col :xs="24" :lg="16">
-        <div class="glass-card card-section">
-          <h3>最近操作日志</h3>
-          <a-table
-            :columns="logColumns"
-            :data-source="recentLogs"
-            :pagination="false"
-            :loading="loading"
-            size="small"
-          />
-        </div>
+        <AnimatedList animationType="slideUp" :duration="0.6" :delay="200">
+          <div class="glass-card card-section">
+            <h3>最近操作日志</h3>
+            <a-table
+              :columns="logColumns"
+              :data-source="recentLogs"
+              :pagination="false"
+              :loading="loading"
+              size="small"
+            />
+          </div>
+        </AnimatedList>
       </a-col>
       <a-col :xs="24" :lg="8">
-        <div class="glass-card card-section">
-          <h3>系统信息</h3>
-          <a-descriptions :column="1" size="small">
-            <a-descriptions-item label="运行平台">Cloudflare Workers</a-descriptions-item>
-            <a-descriptions-item label="数据库">D1 (SQLite)</a-descriptions-item>
-            <a-descriptions-item label="缓存">KV Store</a-descriptions-item>
-            <a-descriptions-item label="前端">Vue 3 + Ant Design</a-descriptions-item>
-            <a-descriptions-item label="后端">Rust Worker</a-descriptions-item>
-          </a-descriptions>
-        </div>
+        <AnimatedList animationType="slideRight" :duration="0.6" :delay="300">
+          <div class="glass-card card-section">
+            <h3>系统信息</h3>
+            <a-descriptions :column="1" size="small">
+              <a-descriptions-item label="运行平台">Cloudflare Workers</a-descriptions-item>
+              <a-descriptions-item label="数据库">D1 (SQLite)</a-descriptions-item>
+              <a-descriptions-item label="缓存">KV Store</a-descriptions-item>
+              <a-descriptions-item label="前端">Vue 3 + Ant Design</a-descriptions-item>
+              <a-descriptions-item label="后端">Rust Worker</a-descriptions-item>
+            </a-descriptions>
+          </div>
+        </AnimatedList>
       </a-col>
     </a-row>
   </div>
@@ -93,6 +101,9 @@ import {
   ThunderboltOutlined,
   CloudOutlined,
 } from '@ant-design/icons-vue'
+import SplitText from '@/components/animations/SplitText.vue'
+import CountUp from '@/components/animations/CountUp.vue'
+import AnimatedList from '@/components/animations/AnimatedList.vue'
 
 const authStore = useAuthStore()
 const loading = ref(false)
