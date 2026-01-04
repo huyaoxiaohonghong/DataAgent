@@ -1,0 +1,16 @@
+Manage为项目的管理端，Client为项目的客户端，现在请设计一套客户端的方案，需求是同步Manage管理端
+的配置管理信息和用户管理信息，并且以.exe的文件形式存在，技术架构为
+前端部分：核心框架: Vue 3 (Composition API)
+UI 组件库: Ant Design Vue (提供企业级 UI)
+语言: TypeScript (强类型支持)
+状态管理: Pinia (在 src/stores 中，替代了传统的 Vuex)
+路由: Vue Router (在 src/router 中)
+构建工具: Vite
+设计风格: 玻璃拟态 (Glassmorphism) + 暗色主题 (Dark Mode)
+后端部分：
+语言: Rust
+架构：Tauri v2 
+数据与存储：
+Cloudflare D1
+Cloudflare KV
+用同一套数据库

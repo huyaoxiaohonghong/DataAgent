@@ -1,6 +1,0 @@
-# Cloudflare Pages 配置
-name = "dataagent-frontend"
-compatibility_date = "2024-01-01"
-
-# 指定部署类型为 Pages
-pages_build_output_dir = "dist"
